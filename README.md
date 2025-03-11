@@ -22,8 +22,8 @@ https://klokapp.ai?referral_code=R3ZDBNE9
 
 1. Clone the repository:
     ```
-    git clone https://github.com/mesamirh/KlokappAi-Testnet-Bot.git
-    cd KlokappAi-Testnet-Bot
+    git clone https://github.com/papa-multi/klok-bot.git
+    cd klok-bot
     ```
 
 2. Install dependencies:
