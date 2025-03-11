@@ -1,0 +1,5 @@
+node_modules/
+.env
+auth-test.js
+test-api.js
+package-lock.json
