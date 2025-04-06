@@ -8,10 +8,9 @@
     "start": "node main.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
     "ethers": "^6.11.1",
-    "node-fetch": "^3.3.2",
-    "https-proxy-agent": "^7.0.2"
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2"
   },
   "engines": {
     "node": ">=16.0.0"
