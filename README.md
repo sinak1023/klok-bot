@@ -22,7 +22,7 @@ https://klokapp.ai
 
 1. Clone the repository:
     ```
-    git clone https://github.com/papa-multi/klok-bot.git
+    git clone https://github.com/cryptoneth/klok-bot.git
     cd klok-bot
     ```
 
