@@ -29,12 +29,19 @@ https://klokapp.ai?referral_code=R3ZDBNE9
 2. Install dependencies:
     ```
     npm install
+    npm install puppeteer
     ```
 
 3. Create a `.env` file in the project root with your Ethereum private key:
     ```
-    PRIVATE_KEY=your_private_key_here
+    PRIVATE_KEY=
+    RECAPTCHA_SITE_KEY=
+    RECAPTCHA_SECRET_KEY=
     ```
+
+4. Get You Recapcha_site_key and Recapcha_secrret_key from 
+
+*** https://www.google.com/u/1/recaptcha/admin/create
 
 ## Usage
 
