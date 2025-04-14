@@ -73,7 +73,6 @@ class KlokappBot {
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
       };
 
-      // ساخت توکن reCAPTCHA
       console.log("🤖 Generating reCAPTCHA token...");
       const recaptchaToken = await this.getRecaptchaToken();
       console.log("✅ reCAPTCHA token generated:", recaptchaToken);
@@ -98,7 +97,7 @@ class KlokappBot {
         signedMessage: signature,
         message: messageToSign,
         referral_code: null,
-        recaptcha_token: recaptchaToken, // اضافه کردن توکن
+        recaptcha_token: recaptchaToken,
       };
 
       console.log("🔐 Verifying wallet...");
@@ -136,7 +135,10 @@ class KlokappBot {
   }
 
   async getRecaptchaToken() {
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"], // پرچم‌ها برای رفع خطا
+    });
     try {
       const page = await browser.newPage();
       await page.goto("https://klokapp.ai");
