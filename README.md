@@ -22,7 +22,7 @@ https://klokapp.ai?referral_code=32TC5MXL
 
 1. Clone the repository:
     ```
-    git clone https://github.com/cryptoneth/klok-bot.git
+    git clone https://github.com/sinak1023/klok-bot.git
     cd klok-bot
     ```
 
