@@ -16,7 +16,7 @@ This bot helps automate interactions with the KlokappAI platform by:
 - An Ethereum private key
 
 # First register
-https://klokapp.ai?referral_code=R3ZDBNE9
+https://klokapp.ai
 
 ## Installation
 
