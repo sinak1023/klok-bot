@@ -2,10 +2,11 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import fetch from "node-fetch";
 import crypto from "crypto";
+import puppeteer from "puppeteer";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// Random questions for chat
+// سوالات تصادفی برای چت
 const questions = [
   "What are the latest updates in Ethereum?",
   "How does proof of stake work?",
@@ -26,43 +27,32 @@ class KlokappBot {
     this.baseUrl = "https://api1-pp.klokapp.ai/v1";
     this.wallet = null;
     this.sessionToken = null;
-    this.running = true; // Flag to keep the script running
+    this.running = true;
   }
 
   async start() {
     try {
-      // Initial setup
       this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY);
       console.log("🔑 Wallet initialized:", this.wallet.address);
 
-      // Run indefinitely
       while (this.running) {
         try {
-          // Connect wallet if needed
           if (!this.sessionToken) {
             await this.connectWallet();
           }
-
-          // Perform available chats
           await this.performChats();
-
-          // After chats complete, wait for a short period before checking again
-          console.log(
-            "😴 Bot is sleeping for 5 minutes before checking for new messages..."
-          );
-          await delay(5 * 60 * 1000); // 5 minute default check interval
+          console.log("😴 Bot is sleeping for 5 minutes...");
+          await delay(5 * 60 * 1000);
         } catch (error) {
           console.error("❌ Session error:", error.message);
           console.log("🔄 Reconnecting in 1 minute...");
-          this.sessionToken = null; // Clear token to force reconnect
-          await delay(60000); // Wait 1 minute before retry
+          this.sessionToken = null;
+          await delay(60000);
         }
       }
     } catch (error) {
       console.error("❌ Critical error:", error);
-      console.log(
-        "⚠️ Bot has stopped due to a critical error. Please restart manually."
-      );
+      console.log("⚠️ Bot stopped. Please restart manually.");
     }
   }
 
@@ -82,6 +72,11 @@ class KlokappBot {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
       };
+
+      // ساخت توکن reCAPTCHA
+      console.log("🤖 Generating reCAPTCHA token...");
+      const recaptchaToken = await this.getRecaptchaToken();
+      console.log("✅ reCAPTCHA token generated:", recaptchaToken);
 
       const nonce = ethers.hexlify(ethers.randomBytes(48)).substring(2);
       const messageToSign = [
@@ -103,6 +98,7 @@ class KlokappBot {
         signedMessage: signature,
         message: messageToSign,
         referral_code: null,
+        recaptcha_token: recaptchaToken, // اضافه کردن توکن
       };
 
       console.log("🔐 Verifying wallet...");
@@ -139,6 +135,39 @@ class KlokappBot {
     }
   }
 
+  async getRecaptchaToken() {
+    const browser = await puppeteer.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.goto("https://klokapp.ai");
+
+      await page.addScriptTag({
+        url: `https://www.google.com/recaptcha/api.js?render=${process.env.RECAPTCHA_SITE_KEY}`,
+      });
+
+      const token = await page.evaluate(
+        (siteKey) => {
+          return new Promise((resolve, reject) => {
+            grecaptcha.ready(() => {
+              grecaptcha
+                .execute(siteKey, { action: "verify" })
+                .then((token) => resolve(token))
+                .catch((error) => reject(error));
+            });
+          });
+        },
+        process.env.RECAPTCHA_SITE_KEY
+      );
+
+      return token;
+    } catch (error) {
+      console.error("❌ reCAPTCHA token error:", error.message);
+      throw error;
+    } finally {
+      await browser.close();
+    }
+  }
+
   async sendMessage(threadId, message) {
     try {
       const response = await fetch(`${this.baseUrl}/chat`, {
@@ -158,12 +187,7 @@ class KlokappBot {
         body: JSON.stringify({
           id: threadId,
           title: "",
-          messages: [
-            {
-              role: "user",
-              content: message,
-            },
-          ],
+          messages: [{ role: "user", content: message }],
           sources: [],
           model: "llama-3.3-70b-instruct",
           created_at: new Date().toISOString(),
@@ -182,7 +206,6 @@ class KlokappBot {
 
       try {
         const data = JSON.parse(responseText);
-
         if (
           data.choices &&
           data.choices.length > 0 &&
@@ -247,7 +270,6 @@ class KlokappBot {
   async performChats() {
     try {
       console.log("🚀 Starting chat sessions...");
-
       let userLimits = await this.getUserLimits();
       console.log(
         `👤 Account status: ${userLimits.isPremium ? "⭐ Premium" : "🔄 Free"}`
@@ -261,32 +283,17 @@ class KlokappBot {
           typeof userLimits.resetTime === "number"
             ? new Date(Date.now() + userLimits.resetTime * 1000)
             : new Date(userLimits.resetTime);
-
-        console.log(
-          `⏰ Message limit resets at: ${resetTime.toLocaleString()}`
-        );
-
-        const now = new Date();
-        const timeUntilReset = resetTime - now;
-
-        if (timeUntilReset > 0) {
-          console.log(
-            `⏳ Time until reset: ${Math.floor(timeUntilReset / 60000)} minutes`
-          );
-        }
+        console.log(`⏰ Message limit resets at: ${resetTime.toLocaleString()}`);
       }
 
       let chatCount = Math.min(10, userLimits.remainingMessages);
 
       if (chatCount <= 0) {
-        console.log("❗ No chat messages remaining. Will check again later.");
-
+        console.log("❗ No chat messages remaining.");
         return;
       }
 
-      console.log(
-        `🎯 Will perform ${chatCount} chat sessions based on remaining limit.`
-      );
+      console.log(`🎯 Will perform ${chatCount} chat sessions.`);
 
       let completedChats = 0;
 
@@ -294,9 +301,7 @@ class KlokappBot {
         if (completedChats > 0) {
           userLimits = await this.getUserLimits();
           if (userLimits.remainingMessages <= 0) {
-            console.log(
-              "⛔ No more messages remaining. Stopping chat sessions."
-            );
+            console.log("⛔ No more messages remaining.");
             break;
           }
         }
@@ -318,26 +323,17 @@ class KlokappBot {
         );
 
         completedChats++;
-
         console.log(`📊 Progress: ${completedChats}/${chatCount} completed`);
-        console.log(
-          `💬 Remaining: ~${
-            userLimits.remainingMessages - completedChats
-          } messages`
-        );
 
         if (completedChats < chatCount) {
-          console.log(`⏳ Waiting 5 seconds before next chat...`);
+          console.log(`⏳ Waiting 5 seconds...`);
           await delay(5000);
         }
       }
 
       console.log("\n🎉 All chat sessions completed!");
-
       userLimits = await this.getUserLimits();
-      console.log(
-        `💬 Final remaining messages: ${userLimits.remainingMessages}`
-      );
+      console.log(`💬 Final remaining messages: ${userLimits.remainingMessages}`);
     } catch (error) {
       console.error("❌ Chat session error:", error.message);
       throw error;
@@ -345,14 +341,12 @@ class KlokappBot {
   }
 }
 
-// Create and start the bot
 const bot = new KlokappBot();
 bot.start().catch((error) => {
   console.error("❌ Fatal error:", error);
   process.exit(1);
 });
 
-// Handle graceful shutdown
 process.on("SIGINT", () => {
   console.log("\n👋 Bot is shutting down...");
   bot.running = false;
