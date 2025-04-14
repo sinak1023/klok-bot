@@ -27,18 +27,18 @@ https://klokapp.ai?referral_code=32TC5MXL
     ```
 
 2. Install dependencies:
-    ```
+```
 npm install dotenv ethers node-fetch crypto puppeteer https-proxy-agent @google/generative-ai
-    ```
+```
 
 3. Create a `.env` file in the project root with your Ethereum private key:
-    ```
+```
 PRIVATE_KEY1=0x...
 PRIVATE_KEY2=0x...
 RECAPTCHA_SITE_KEY=
 RECAPTCHA_SECRET_KEY=
 GEMINI_API_KEY=
-    ```
+```
 3.2 put proxys in this format into proxy.txt file
 ```
 http://ip:port
