@@ -39,9 +39,11 @@ https://klokapp.ai
     RECAPTCHA_SECRET_KEY=
     ```
 
-4. Get You Recapcha_site_key and Recapcha_secrret_key from 
+4. get You Recapcha_site_key and Recapcha_secrret_key from 
 
 *** https://www.google.com/u/1/recaptcha/admin/create
+
+Choose Score based (v3)
 
 ## Usage
 
