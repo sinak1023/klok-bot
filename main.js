@@ -6,7 +6,7 @@ import puppeteer from "puppeteer";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// سوالات تصادفی برای چت
+
 const questions = [
   "What are the latest updates in Ethereum?",
   "How does proof of stake work?",
@@ -137,7 +137,7 @@ class KlokappBot {
   async getRecaptchaToken() {
     const browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"], // پرچم‌ها برای رفع خطا
+      args: ["--no-sandbox", "--disable-setuid-sandbox"], 
     });
     try {
       const page = await browser.newPage();
