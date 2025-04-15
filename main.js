@@ -3,51 +3,144 @@ import { ethers } from "ethers";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import puppeteer from "puppeteer";
+import fs from "fs/promises";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createWriteStream } from "fs";
 
+// تنظیم سیستم لاگ
+const logStream = createWriteStream("bot.log", { flags: "a" });
+console.log = (...args) => {
+  logStream.write(`${new Date().toISOString()} - ${args.join(" ")}\n`);
+  process.stdout.write(`${args.join(" ")}\n`);
+};
+console.error = (...args) => {
+  logStream.write(`${new Date().toISOString()} - ERROR: ${args.join(" ")}\n`);
+  process.stderr.write(`ERROR: ${args.join(" ")}\n`);
+};
+
+// تابع تاخیر
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
+// خواندن پراکسی‌ها از فایل proxy.txt
+async function loadProxies() {
+  try {
+    const proxyData = await fs.readFile("proxy.txt", "utf-8");
+    return proxyData
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && line.startsWith("http"));
+ presidents } catch (error) {
+    console.error("❌ Error loading proxies:", error.message);
+    return [];
+  }
+}
 
-const questions = [
-  "What are the latest updates in Ethereum?",
-  "How does proof of stake work?",
-  "What are the best DeFi protocols?",
-  "Explain smart contract security",
-  "What is the current state of Layer 2 solutions?",
-  "How do rollups work?",
-  "What are the benefits of Web3?",
-  "Explain blockchain interoperability",
-  "What are the trending NFT projects?",
-  "How does tokenomics work?",
-  "What is the future of DAOs?",
-  "Explain MEV in blockchain",
-];
+// تابع برای تولید سوال کریپتویی با جمینی
+async function generateCryptoQuestion() {
+  try {
+    await delay(1000); // تأخیر برای جلوگیری از محدودیت نرخ
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = "Generate a short, specific question in English about cryptocurrency or blockchain technology.";
+    const result = await model.generateContent(prompt);
+    const question = result.response.text().trim();
+
+    return question;
+  } catch (error) {
+    console.error("❌ Error generating question with Gemini:", error.message);
+    return "What is the latest trend in cryptocurrency?"; // سوال پیش‌فرض
+  }
+}
 
 class KlokappBot {
   constructor() {
     this.baseUrl = "https://api1-pp.klokapp.ai/v1";
-    this.wallet = null;
-    this.sessionToken = null;
+    this.wallets = [];
+    this.sessionTokens = new Map();
     this.running = true;
+    this.proxies = [];
+  }
+
+  async initializeWallets() {
+    const walletKeys = Object.keys(process.env)
+      .filter((key) => key.startsWith("PRIVATE_KEY"))
+      .map((key) => process.env[key])
+      .filter((key) => key);
+
+    if (walletKeys.length === 0) {
+      throw new Error("No private keys found in .env");
+    }
+
+    this.wallets = [];
+    walletKeys.forEach((key, index) => {
+      try {
+        if (!ethers.isHexString(key, 32)) {
+          throw new Error(`Invalid private key format at index ${index + 1}`);
+        }
+        const wallet = new ethers.Wallet(key);
+        this.wallets.push(wallet);
+        console.log(`✅ Wallet ${index + 1} initialized: ${wallet.address}`);
+      } catch (error) {
+        console.error(`❌ Skipping key ${index + 1}: ${error.message}`);
+      }
+    });
+
+    if (this.wallets.length === 0) {
+      throw new Error("No valid wallets created");
+    }
+
+    console.log(`🔑 ${this.wallets.length} wallets initialized.`);
+    this.proxies = await loadProxies();
+    if (this.proxies.length < this.wallets.length) {
+      console.warn(
+        `⚠️ Warning: Only ${this.proxies.length} proxies available for ${this.wallets.length} wallets.`
+      );
+    }
   }
 
   async start() {
     try {
-      this.wallet = new ethers.Wallet(process.env.PRIVATE_KEY);
-      console.log("🔑 Wallet initialized:", this.wallet.address);
-
+      await this.initializeWallets();
+      console.log("🚀 Bot started with multi-wallet support.");
+  
       while (this.running) {
-        try {
-          if (!this.sessionToken) {
-            await this.connectWallet();
+        const startTime = Date.now();
+        console.log(`\n🌟 New cycle started at ${new Date().toLocaleString()}`);
+  
+        // پردازش هر ولت فقط یک‌بار
+        for (let i = 0; i < this.wallets.length; i++) {
+          const wallet = this.wallets[i];
+          const proxy = this.proxies[i % this.proxies.length] || null;
+          console.log(`🔄 Processing wallet ${i + 1} of ${this.wallets.length}: ${wallet.address}`);
+  
+          try {
+            if (!this.sessionTokens.has(wallet.address)) {
+              await this.connectWallet(wallet, proxy);
+            }
+            await this.performChats(wallet, proxy);
+            console.log(`✅ Wallet ${i + 1} completed successfully.`);
+          } catch (error) {
+            console.error(`❌ Error for wallet ${wallet.address}: ${error.message}`);
+            this.sessionTokens.delete(wallet.address);
           }
-          await this.performChats();
-          console.log("😴 Bot is sleeping for 5 minutes...");
-          await delay(5 * 60 * 1000);
-        } catch (error) {
-          console.error("❌ Session error:", error.message);
-          console.log("🔄 Reconnecting in 1 minute...");
-          this.sessionToken = null;
-          await delay(60000);
+  
+          // تأخیر کوتاه بین ولت‌ها برای جلوگیری از فشار به API
+          if (i < this.wallets.length - 1) {
+            console.log(`😴 Sleeping for 30 seconds before next wallet...`);
+            await delay(30 * 1000);
+          }
+        }
+  
+        // محاسبه زمان باقی‌مانده تا 24 ساعت
+        const elapsedTime = Date.now() - startTime;
+        const remainingTime = 24 * 60 * 60 * 1000 - elapsedTime;
+  
+        if (remainingTime > 0) {
+          console.log(`⏰ Waiting ${Math.ceil(remainingTime / 1000 / 60)} minutes until next cycle...`);
+          await delay(remainingTime);
+        } else {
+          console.log(`⚡ Cycle finished faster than expected. Starting next cycle immediately.`);
         }
       }
     } catch (error) {
@@ -56,7 +149,7 @@ class KlokappBot {
     }
   }
 
-  async connectWallet() {
+  async connectWallet(wallet, proxy) {
     try {
       const headers = {
         accept: "*/*",
@@ -73,14 +166,14 @@ class KlokappBot {
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
       };
 
-      console.log("🤖 Generating reCAPTCHA token...");
-      const recaptchaToken = await this.getRecaptchaToken();
+      console.log(`🤖 Generating reCAPTCHA token for wallet ${wallet.address}...`);
+      const recaptchaToken = await this.getRecaptchaToken(proxy);
       console.log("✅ reCAPTCHA token generated:", recaptchaToken);
 
       const nonce = ethers.hexlify(ethers.randomBytes(48)).substring(2);
       const messageToSign = [
         `klokapp.ai wants you to sign in with your Ethereum account:`,
-        this.wallet.address,
+        wallet.address,
         ``,
         ``,
         `URI: https://klokapp.ai/`,
@@ -90,8 +183,8 @@ class KlokappBot {
         `Issued At: ${new Date().toISOString()}`,
       ].join("\n");
 
-      console.log("📝 Signing authentication message...");
-      const signature = await this.wallet.signMessage(messageToSign);
+      console.log(`📝 Signing authentication message for wallet ${wallet.address}...`);
+      const signature = await wallet.signMessage(messageToSign);
 
       const verifyBody = {
         signedMessage: signature,
@@ -100,18 +193,19 @@ class KlokappBot {
         recaptcha_token: recaptchaToken,
       };
 
-      console.log("🔐 Verifying wallet...");
+      console.log(`🔐 Verifying wallet ${wallet.address}...`);
       const verifyResponse = await fetch(`${this.baseUrl}/verify`, {
         method: "POST",
         headers,
         body: JSON.stringify(verifyBody),
+        agent: proxy ? new (require("https-proxy-agent").HttpsProxyAgent)(proxy) : null,
       });
 
       const responseText = await verifyResponse.text();
 
       if (!verifyResponse.ok) {
         throw new Error(
-          `Verification failed: ${verifyResponse.status} - ${responseText}`
+          `Verification failed for wallet ${wallet.address}: ${verifyResponse.status} - ${responseText}`
         );
       }
 
@@ -126,18 +220,24 @@ class KlokappBot {
         throw new Error("No session_token in verify response");
       }
 
-      this.sessionToken = verifyData.session_token;
-      console.log("✅ Wallet connected successfully!");
+      this.sessionTokens.set(wallet.address, verifyData.session_token);
+      console.log(`✅ Wallet ${wallet.address} connected successfully!`);
     } catch (error) {
-      console.error("❌ Wallet connection error:", error.message);
+      console.error(`❌ Wallet connection error for ${wallet.address}:`, error.message);
       throw error;
     }
   }
 
-  async getRecaptchaToken() {
+  async getRecaptchaToken(proxy) {
     const browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"], 
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--single-process",
+      ].concat(proxy ? [`--proxy-server=${proxy.replace("http://", "")}`] : []),
     });
     try {
       const page = await browser.newPage();
@@ -170,14 +270,17 @@ class KlokappBot {
     }
   }
 
-  async sendMessage(threadId, message) {
+  async sendMessage(wallet, threadId, message) {
     try {
+      const sessionToken = this.sessionTokens.get(wallet.address);
+      const proxy = this.proxies[this.wallets.indexOf(wallet) % this.proxies.length] || null;
+
       const response = await fetch(`${this.baseUrl}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "*/*",
-          "x-session-token": this.sessionToken,
+          "x-session-token": sessionToken,
           Origin: "https://klokapp.ai",
           Referer: "https://klokapp.ai/",
           "User-Agent":
@@ -195,6 +298,7 @@ class KlokappBot {
           created_at: new Date().toISOString(),
           language: "english",
         }),
+        agent: proxy ? new (require("https-proxy-agent").HttpsProxyAgent)(proxy) : null,
       });
 
       if (!response.ok) {
@@ -226,13 +330,16 @@ class KlokappBot {
     }
   }
 
-  async getUserLimits() {
+  async getUserLimits(wallet) {
     try {
+      const sessionToken = this.sessionTokens.get(wallet.address);
+      const proxy = this.proxies[this.wallets.indexOf(wallet) % this.proxies.length] || null;
+
       const response = await fetch(`${this.baseUrl}/rate-limit`, {
         method: "GET",
         headers: {
           Accept: "*/*",
-          "x-session-token": this.sessionToken,
+          "x-session-token": sessionToken,
           Origin: "https://klokapp.ai",
           Referer: "https://klokapp.ai/",
           "User-Agent":
@@ -241,6 +348,7 @@ class KlokappBot {
           "sec-fetch-mode": "cors",
           "sec-fetch-dest": "empty",
         },
+        agent: proxy ? new (require("https-proxy-agent").HttpsProxyAgent)(proxy) : null,
       });
 
       if (!response.ok) {
@@ -269,10 +377,10 @@ class KlokappBot {
     }
   }
 
-  async performChats() {
+  async performChats(wallet, proxy) {
     try {
-      console.log("🚀 Starting chat sessions...");
-      let userLimits = await this.getUserLimits();
+      console.log(`🚀 Starting chat sessions for wallet ${wallet.address}...`);
+      let userLimits = await this.getUserLimits(wallet);
       console.log(
         `👤 Account status: ${userLimits.isPremium ? "⭐ Premium" : "🔄 Free"}`
       );
@@ -291,19 +399,19 @@ class KlokappBot {
       let chatCount = Math.min(10, userLimits.remainingMessages);
 
       if (chatCount <= 0) {
-        console.log("❗ No chat messages remaining.");
+        console.log(`❗ No chat messages remaining for wallet ${wallet.address}.`);
         return;
       }
 
-      console.log(`🎯 Will perform ${chatCount} chat sessions.`);
+      console.log(`🎯 Will perform ${chatCount} chat sessions for wallet ${wallet.address}.`);
 
       let completedChats = 0;
 
       while (completedChats < chatCount) {
         if (completedChats > 0) {
-          userLimits = await this.getUserLimits();
+          userLimits = await this.getUserLimits(wallet);
           if (userLimits.remainingMessages <= 0) {
-            console.log("⛔ No more messages remaining.");
+            console.log(`⛔ No more messages remaining for wallet ${wallet.address}.`);
             break;
           }
         }
@@ -312,14 +420,13 @@ class KlokappBot {
         console.log(
           `\n📝 Chat ${
             completedChats + 1
-          }/${chatCount} started, Thread ID: ${threadId}`
+          }/${chatCount} started for wallet ${wallet.address}, Thread ID: ${threadId}`
         );
 
-        const question =
-          questions[Math.floor(Math.random() * questions.length)];
-        console.log(`❓ Question: ${question}`);
+        const question = await generateCryptoQuestion();
+        console.log(`🤖 Gemini-generated question: ${question}`);
 
-        const response = await this.sendMessage(threadId, question);
+        const response = await this.sendMessage(wallet, threadId, question);
         console.log(
           `✅ Response received: ${response.content.substring(0, 100)}...`
         );
@@ -333,11 +440,12 @@ class KlokappBot {
         }
       }
 
-      console.log("\n🎉 All chat sessions completed!");
-      userLimits = await this.getUserLimits();
+      console.log(`\n🎉 All chat sessions completed for wallet ${wallet.address}!`);
+      userLimits = await this.getUserLimits(wallet);
       console.log(`💬 Final remaining messages: ${userLimits.remainingMessages}`);
     } catch (error) {
-      console.error("❌ Chat session error:", error.message);
+      console.error(`❌ Chat session error for wallet ${wallet.address}:`, error.message);
+      this.sessionTokens.delete(wallet.address);
       throw error;
     }
   }
