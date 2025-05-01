@@ -1,4 +1,4 @@
-# KlokappAI Testnet Bot
+# KlokappAI Testnet Bot - Update - work with cap solver
 
 A Node.js bot for automated participation in the KlokappAI testnet.
 
@@ -35,8 +35,7 @@ npm install dotenv ethers node-fetch crypto puppeteer https-proxy-agent @google/
 ```
 PRIVATE_KEY1=0x...
 PRIVATE_KEY2=0x...
-RECAPTCHA_SITE_KEY=
-RECAPTCHA_SECRET_KEY=
+CAPSOLVER_API_KEY=your_capsolver_api_key_here
 GEMINI_API_KEY=
 ```
 3.2 put proxys in this format into proxy.txt file
